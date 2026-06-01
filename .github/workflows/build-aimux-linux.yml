@@ -64,7 +64,7 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y \
-            jq git libkrb5-dev \
+            jq git libkrb5-dev libx11-dev libxkbfile-dev pkg-config \
             fakeroot dpkg-dev \
             rpm2cpio cpio
 
