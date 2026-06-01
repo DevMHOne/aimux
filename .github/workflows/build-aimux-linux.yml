@@ -31,7 +31,7 @@ env:
   DISABLE_UPDATE: "no"
   SHOULD_BUILD_DEB: "yes"
   SHOULD_BUILD_RPM: "no"
-  SHOULD_BUILD_APPIMAGE: "yes"
+  SHOULD_BUILD_APPIMAGE: "no"
   SHOULD_BUILD_TAR: "yes"
 
 permissions:
@@ -39,7 +39,7 @@ permissions:
 
 jobs:
   build-linux:
-    name: Build Linux x64 (.deb + .AppImage)
+    name: Build Linux x64 (.deb + .tar.gz)
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -78,9 +78,14 @@ jobs:
       - name: Build Aimux for Linux
         run: ./build.sh
 
-      # ── Package: .deb, .AppImage, .tar.gz ─────────────────────
+      # ── Package: .deb + .tar.gz (direct, skips snapcraft/CLI wrapper) ──
       - name: Package Linux assets
-        run: ./prepare_assets.sh
+        run: |
+          mkdir -p assets
+          APP_NAME_LC="$( echo "${APP_NAME}" | awk '{print tolower($0)}' )"
+          . ./build/linux/prepare_assets.sh
+          echo "Generated assets:"
+          ls -la assets/ || true
 
       - name: Stage artifacts
         run: |
@@ -88,7 +93,6 @@ jobs:
           if [[ -d assets ]]; then
             cp assets/* artifacts/ 2>/dev/null || true
           fi
-
           echo "Artifacts staged:"
           ls -la artifacts/
 
@@ -97,14 +101,6 @@ jobs:
         with:
           name: aimux-linux-x64-deb
           path: artifacts/*.deb
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload .AppImage
-        uses: actions/upload-artifact@v4
-        with:
-          name: aimux-linux-x64-appimage
-          path: artifacts/*.AppImage*
           if-no-files-found: warn
           retention-days: 14
 

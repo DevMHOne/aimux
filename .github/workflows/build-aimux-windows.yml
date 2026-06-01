@@ -17,7 +17,6 @@ on:
       - ".github/workflows/mod-*.yml"
 
 env:
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
   APP_NAME: Aimux
   BINARY_NAME: aimux
   ORG_NAME: Aimux
@@ -28,7 +27,7 @@ env:
   CI_BUILD: no
   SHOULD_BUILD_REH: no
   SHOULD_BUILD_REH_WEB: no
-  DISABLE_UPDATE: "no"
+  DISABLE_UPDATE: "yes"
 
 permissions:
   contents: read
@@ -36,8 +35,19 @@ permissions:
 jobs:
   build-windows:
     name: Build Windows x64 Installer
-    runs-on: ubuntu-latest
+    runs-on: windows-2022
     timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      VSCODE_ARCH: x64
+      # Native .exe installer generation via VS Code's bundled Inno Setup
+      SHOULD_BUILD_ZIP: "yes"
+      SHOULD_BUILD_EXE_SYS: "yes"
+      SHOULD_BUILD_EXE_USR: "yes"
+      SHOULD_BUILD_MSI: "no"
+      SHOULD_BUILD_MSI_NOUP: "no"
 
     steps:
       # ── Checkout ──────────────────────────────────────────────
@@ -46,7 +56,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # ── Toolchain ─────────────────────────────────────────────
+      # ── Toolchain (matches official VSCodium CI) ──────────────
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -57,107 +67,29 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y jq git libkrb5-dev libx11-dev libxkbfile-dev pkg-config
-
-      # ── Wine MUST be installed before build (rcedit needs it during packaging) ──
-      - name: Install Wine
-        run: |
-          sudo dpkg --add-architecture i386
-          sudo apt-get update -y
-          sudo apt-get install -y wine64 wine32 || sudo apt-get install -y wine-stable wine32:i386 || sudo apt-get install -y wine
-          echo "Wine version:"
-          wine --version || true
-          # warm up the wine prefix so the first spawn during build doesn't race
-          export WINEDEBUG=-all
-          wineboot --init 2>/dev/null || true
-
       # ── Clone VS Code source ──────────────────────────────────
       - name: Clone VS Code source
         run: ./get_repo.sh
 
-      # ── Build (includes prepare_vscode.sh internally) ─────────
+      # ── Build (build.sh does full prepack + packing when CI_BUILD=no) ──
       - name: Build Aimux for Windows
-        env:
-          WINEDEBUG: "-all"
         run: ./build.sh
 
-      # ── Inno Setup for .exe installer ─────────────────────────
-      - name: Install Inno Setup
+      # ── Generate native .exe installers (Inno Setup via gulp) ──
+      - name: Prepare Windows assets (.exe installers + .zip)
+        run: ./prepare_assets.sh
+
+      - name: List generated assets
         run: |
-          export WINEDEBUG=-all
-          echo "::group::Download Inno Setup"
-          wget -q "https://jrsoftware.org/download.php/innosetup-6.4.3.exe" -O /tmp/innosetup.exe
-          echo "::endgroup::"
-          echo "::group::Install Inno Setup via Wine"
-          wine /tmp/innosetup.exe /VERYSILENT /NORESTART /SUPPRESSMSGBOXES
-          echo "::endgroup::"
-          echo "Inno Setup installed at:"
-          ls -la "$HOME/.wine/drive_c/Program Files (x86)/Inno Setup 6/" || true
+          echo "Assets directory:"
+          ls -la assets/ || echo "no assets/ dir"
 
-      - name: Create Windows .exe installer with ISCC
-        run: |
-          ISCC="$HOME/.wine/drive_c/Program Files (x86)/Inno Setup 6/ISCC.exe"
-          if [[ ! -f "$ISCC" ]]; then
-            echo "ERROR: ISCC.exe not found at $ISCC"
-            exit 1
-          fi
-
-          echo "::group::Run Inno Setup Compiler"
-          wine "$ISCC.exe" \
-            /DArchitecturesAllowed=x64 \
-            /DArchitecturesInstallIn64BitMode=x64 \
-            /DSourceDir="${GITHUB_WORKSPACE}/VSCode-win32-x64" \
-            "${GITHUB_WORKSPACE}/vscode/build/win32/code.iss"
-          echo "::endgroup::"
-
-          echo "Looking for generated .exe files:"
-          find "${GITHUB_WORKSPACE}" -name "*.exe" -not -path "*/node_modules/*" -not -path "*/.wine/*" 2>/dev/null || true
-          find "${GITHUB_WORKSPACE}/vscode" -name "*.exe" -not -path "*/node_modules/*" 2>/dev/null || true
-
-      - name: Locate and stage installer artifacts
-        run: |
-          mkdir -p artifacts
-
-          # ISCC outputs to Output/ directory relative to .iss file location
-          # or to a configured OutputDir. Search common locations.
-          ISS_DIR="${GITHUB_WORKSPACE}/vscode/build/win32"
-          FOUND=0
-
-          for candidate in \
-            "${ISS_DIR}/Output/"*.exe \
-            "${GITHUB_WORKSPACE}/vscode/build/win32/Output/"*.exe \
-            "${GITHUB_WORKSPACE}/vscode/"*.exe \
-            "${GITHUB_WORKSPACE}/VSCode-win32-x64/"*.exe \
-            "${GITHUB_WORKSPACE}/"*.exe; do
-            if ls $candidate 2>/dev/null; then
-              cp $candidate artifacts/
-              FOUND=1
-            fi
-          done
-
-          # Also check for the standard VSCodium/Aimux output names
-          for name in "AimuxSetup" "AimuxUserSetup" "VSCodeSetup" "Setup"; do
-            find "${GITHUB_WORKSPACE}" -maxdepth 4 -name "${name}*.exe" \
-              -not -path "*/node_modules/*" -not -path "*/.wine/*" \
-              -exec cp {} artifacts/ \; 2>/dev/null && FOUND=1 || true
-          done
-
-          if [[ "$FOUND" == "0" ]]; then
-            echo "WARNING: No .exe installer found. Listing build outputs:"
-            find "${GITHUB_WORKSPACE}/vscode/build" -name "*.exe" 2>/dev/null || true
-            find "${GITHUB_WORKSPACE}" -maxdepth 2 -name "*.exe" 2>/dev/null || true
-          fi
-
-          echo "Artifacts staged:"
-          ls -la artifacts/
-
-      - name: Upload Windows installer
+      - name: Upload Windows installers
         uses: actions/upload-artifact@v4
         with:
-          name: aimux-windows-x64-installer
-          path: artifacts/*.exe
+          name: aimux-windows-x64
+          path: |
+            assets/*.exe
+            assets/*.zip
           if-no-files-found: warn
           retention-days: 14
