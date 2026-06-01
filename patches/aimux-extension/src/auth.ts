@@ -12,13 +12,13 @@ const PROVIDERS: OAuthProvider[] = [
     {
         name: 'Google',
         getAuthUrl: (redirectUri: string, state: string) =>
-            `${apiBase}/api/admin/auth/google/url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`,
+            `${apiBase}/api/ide/auth/google/url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`,
         parseCallback: (query) => query.api_key || query.token || null,
     },
     {
         name: 'GitHub',
         getAuthUrl: (redirectUri: string, state: string) =>
-            `${apiBase}/api/admin/auth/github/url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`,
+            `${apiBase}/api/ide/auth/github/url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`,
         parseCallback: (query) => query.api_key || query.token || null,
     },
 ];

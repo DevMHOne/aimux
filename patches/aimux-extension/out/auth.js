@@ -40,12 +40,12 @@ const vscode = __importStar(require("vscode"));
 const PROVIDERS = [
     {
         name: 'Google',
-        getAuthUrl: (redirectUri, state) => `${apiBase}/api/admin/auth/google/url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`,
+        getAuthUrl: (redirectUri, state) => `${apiBase}/api/ide/auth/google/url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`,
         parseCallback: (query) => query.api_key || query.token || null,
     },
     {
         name: 'GitHub',
-        getAuthUrl: (redirectUri, state) => `${apiBase}/api/admin/auth/github/url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`,
+        getAuthUrl: (redirectUri, state) => `${apiBase}/api/ide/auth/github/url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`,
         parseCallback: (query) => query.api_key || query.token || null,
     },
 ];
