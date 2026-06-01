@@ -17,6 +17,7 @@ on:
       - ".github/workflows/mod-*.yml"
 
 env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
   APP_NAME: Aimux
   BINARY_NAME: aimux
   ORG_NAME: Aimux
@@ -46,10 +47,10 @@ jobs:
           persist-credentials: false
 
       # ── Toolchain ─────────────────────────────────────────────
-      - name: Setup Node.js 22
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: .nvmrc
 
       - name: Setup Python 3
         uses: actions/setup-python@v5
