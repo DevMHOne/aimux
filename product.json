@@ -1,4 +1,17 @@
 {
+  "nameShort": "Aimux",
+  "nameLong": "Aimux",
+  "extensionsGallery": {
+    "serviceUrl": "https://open-vsx.org/vscode/gallery",
+    "itemUrl": "https://open-vsx.org/vscode/item",
+    "resourceUrlTemplate": "https://open-vsx.org/vscode/unpkg/{publisher}/{name}/{version}/{path}",
+    "controlUrl": "",
+    "recommendationsUrl": ""
+  },
+  "aimux": {
+    "apiUrl": "https://aimux.id",
+    "docsUrl": "https://aimux.id/docs"
+  },
   "extensionAllowedBadgeProviders": [
     "api.bintray.com",
     "api.travis-ci.com",

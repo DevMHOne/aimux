@@ -20,7 +20,9 @@
     "aimux",
     "llm"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "icon": "assets/aimux.png",
   "contributes": {

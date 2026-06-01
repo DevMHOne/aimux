@@ -103,6 +103,7 @@ else
   setpath "product" "nameShort" "Aimux"
   setpath "product" "nameLong" "Aimux"
   setpath "product" "applicationName" "aimux"
+  setpath "product" "dataFolderName" ".aimux"
   setpath "product" "linuxIconName" "aimux"
   setpath "product" "quality" "stable"
   setpath "product" "urlProtocol" "aimux"
