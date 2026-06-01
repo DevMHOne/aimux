@@ -33,13 +33,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     registerSignOutCommand(context, auth, statusBar);
     registerSelectModelCommand(context, api, statusBar);
 
-    // Register chat participant
-    registerChatParticipant(api);
-
-    // Register inline completion provider
-    registerCompletionProvider(api);
-
-    // Register status bar
+    // Register status bar FIRST so the Sign In button always appears,
+    // even if optional/proposed APIs (chat) are unavailable in this build.
     statusBar.register();
 
     // Check initial auth state
@@ -48,6 +43,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         statusBar.setConnected(api.getCurrentModel());
     } else {
         statusBar.setDisconnected();
+    }
+
+    // Register chat participant (proposed API — guard so a missing API can't abort activation)
+    try {
+        const chatApi = (vscode as any).chat;
+        if (chatApi && typeof chatApi.createChatParticipant === 'function') {
+            registerChatParticipant(api);
+        } else {
+            console.warn('Aimux: vscode.chat API unavailable — chat participant disabled');
+        }
+    } catch (err: any) {
+        console.warn('Aimux: failed to register chat participant —', err && err.message);
+    }
+
+    // Register inline completion provider (guard defensively)
+    try {
+        registerCompletionProvider(api);
+    } catch (err: any) {
+        console.warn('Aimux: failed to register completion provider —', err && err.message);
     }
 
     // Watch config changes
