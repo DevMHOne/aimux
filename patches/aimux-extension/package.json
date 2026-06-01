@@ -1,0 +1,131 @@
+{
+  "name": "aimux",
+  "displayName": "Aimux AI",
+  "description": "AI assistant powered by Aimux — chat, completions, and model management",
+  "version": "1.0.0",
+  "publisher": "aimux",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "chat",
+    "completions",
+    "aimux",
+    "llm"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "icon": "assets/aimux.png",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aimux.signIn",
+        "title": "Aimux: Sign In"
+      },
+      {
+        "command": "aimux.signOut",
+        "title": "Aimux: Sign Out"
+      },
+      {
+        "command": "aimux.selectModel",
+        "title": "Aimux: Select Model"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "aimux.chat",
+        "name": "aimux",
+        "fullName": "Aimux AI",
+        "description": "AI assistant powered by Aimux",
+        "commands": [
+          {
+            "name": "ask",
+            "description": "Ask Aimux anything"
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "Aimux AI",
+      "properties": {
+        "aimux.apiUrl": {
+          "type": "string",
+          "default": "https://aimux.id",
+          "description": "Aimux API base URL"
+        },
+        "aimux.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Aimux API key (set automatically via Sign In)",
+          "order": 1
+        },
+        "aimux.model": {
+          "type": "string",
+          "default": "",
+          "description": "Selected AI model for completions and chat",
+          "order": 2
+        },
+        "aimux.completions.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable inline AI completions",
+          "order": 3
+        },
+        "aimux.completions.triggerCharacters": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["\t", " ", ".", "(", "{", "[", ":", ",", ";"],
+          "description": "Characters that trigger inline completions"
+        }
+      }
+    },
+    "menus": {
+      "commandPalette": [
+        { "command": "aimux.signIn", "when": "aimux:signedIn != true" },
+        { "command": "aimux.signOut", "when": "aimux:signedIn == true" },
+        { "command": "aimux.selectModel", "when": "aimux:signedIn == true" }
+      ],
+      "editor/context": [
+        {
+          "command": "aimux.selectModel",
+          "when": "aimux:signedIn == true",
+          "group": "aimux@1"
+        }
+      ],
+      "statusBar/remoteIndicator": [
+        {
+          "command": "aimux.selectModel",
+          "when": "aimux:signedIn == true"
+        }
+      ]
+    },
+    "languages": [
+      {
+        "id": "aimux-chat",
+        "aliases": ["Aimux Chat", "aimux"]
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
+  }
+}

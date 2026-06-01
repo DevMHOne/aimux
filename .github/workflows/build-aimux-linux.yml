@@ -1,0 +1,121 @@
+name: Build Aimux - Linux x64
+
+on:
+  workflow_dispatch:
+    inputs:
+      generate_assets:
+        type: boolean
+        description: Generate release assets
+        default: true
+  push:
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - "**/*.md"
+      - ".github/workflows/lint-*.yml"
+      - ".github/workflows/mod-*.yml"
+
+env:
+  APP_NAME: Aimux
+  BINARY_NAME: aimux
+  ORG_NAME: Aimux
+  OS_NAME: linux
+  VSCODE_QUALITY: stable
+  VSCODE_ARCH: x64
+  SHOULD_BUILD: yes
+  CI_BUILD: no
+  SHOULD_BUILD_REH: no
+  SHOULD_BUILD_REH_WEB: no
+  DISABLE_UPDATE: "no"
+  SHOULD_BUILD_DEB: "yes"
+  SHOULD_BUILD_RPM: "no"
+  SHOULD_BUILD_APPIMAGE: "yes"
+  SHOULD_BUILD_TAR: "yes"
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux:
+    name: Build Linux x64 (.deb + .AppImage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # ── Toolchain ─────────────────────────────────────────────
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: vscode/**/package-lock.json
+
+      - name: Setup Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            jq git libkrb5-dev \
+            fakeroot dpkg-dev \
+            rpm2cpio cpio
+
+      # ── Clone VS Code source ──────────────────────────────────
+      - name: Clone VS Code source
+        run: ./get_repo.sh
+
+      # ── Prepare: patches + npm ci ─────────────────────────────
+      - name: Prepare VS Code (apply patches, install deps)
+        run: ./prepare_vscode.sh
+
+      # ── Build Electron app ────────────────────────────────────
+      - name: Build Aimux for Linux
+        run: ./build.sh
+
+      # ── Package: .deb, .AppImage, .tar.gz ─────────────────────
+      - name: Package Linux assets
+        run: ./prepare_assets.sh
+
+      - name: Stage artifacts
+        run: |
+          mkdir -p artifacts
+          if [[ -d assets ]]; then
+            cp assets/* artifacts/ 2>/dev/null || true
+          fi
+
+          echo "Artifacts staged:"
+          ls -la artifacts/
+
+      - name: Upload .deb package
+        uses: actions/upload-artifact@v4
+        with:
+          name: aimux-linux-x64-deb
+          path: artifacts/*.deb
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload .AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: aimux-linux-x64-appimage
+          path: artifacts/*.AppImage*
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload .tar.gz archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: aimux-linux-x64-tarball
+          path: artifacts/*.tar.gz
+          if-no-files-found: warn
+          retention-days: 14

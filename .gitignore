@@ -19,3 +19,7 @@ stores/snapcraft/insider/*.snap
 stores/snapcraft/stable/*.snap
 font-size/node_modules/
 font-size/generate-css.js
+node_modules/
+*/node_modules/
+out/
+*/out/

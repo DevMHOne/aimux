@@ -1,0 +1,344 @@
+diff --git a/src/vs/workbench/contrib/aiCompletions/common/aimuxProvider.ts b/src/vs/workbench/contrib/aiCompletions/common/aimuxProvider.ts
+new file mode 100644
+index 0000000..a1b2c3d
+--- /dev/null
++++ b/src/vs/workbench/contrib/aiCompletions/common/aimuxProvider.ts
+@@ -0,0 +1,298 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) !!APP_NAME!!. All rights reserved.
++ *  Licensed under the MIT License. See LICENSE file in the project root for license information.
++ *--------------------------------------------------------------------------------------------*/
++
++import { CancellationToken } from 'vs/base/common/cancellation';
++import { Disposable, DisposableStore } from 'vs/base/common/lifecycle';
++import { IContextKeyService, RawContextKey } from 'vs/platform/contextkey/common/contextkey';
++import { ILogService } from 'vs/platform/log/common/log';
++import { IStorageService, StorageScope, StorageTarget } from 'vs/platform/storage/common/storage';
++import { IEditorService } from 'vs/workbench/services/editor/common/editorService';
++import { IStatusbarService, StatusbarAlignment } from 'vs/workbench/services/statusbar/browser/statusbarService';
++import { InstantiationType, registerSingleton } from 'vs/platform/instantiation/common/extensions';
++import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
++import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
++import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
++import {
++	InlineCompletion,
++	InlineCompletionContext,
++	InlineCompletionItem,
++	InlineCompletionItemProvider,
++	InlineCompletionList,
++	ProvideInlineCompletionItemsFn,
++} from 'vs/editor/contrib/inlineCompletions/browser/provideInlineCompletions';
++import { Position } from 'vs/editor/common/core/position';
++import { Range } from 'vs/editor/common/core/range';
++import { TextModel } from 'vs/editor/common/model/textModel';
++import { URI } from 'vs/base/common/uri';
++import { ISingleEditOperation } from 'vs/editor/common/editorCommon';
++import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
++
++export interface IAimuxCompletionRequest {
++	prompt: string;
++	max_tokens: number;
++	temperature: number;
++	model?: string;
++}
++
++export interface IAimuxCompletionResponse {
++	choices: Array<{
++		text: string;
++		index: number;
++		finish_reason: string;
++	}>;
++	id: string;
++	model: string;
++	object: string;
++	created: number;
++}
++
++const AIMUX_API_KEY_STORAGE_KEY = 'aimux.apiKey';
++const AIMUX_API_URL_SETTING = 'aimux.apiUrl';
++const AIMUX_DEFAULT_API_URL = 'https://aimux.id';
++const AIMUX_MODEL_SETTING = 'aimux.model';
++const AIMUX_MAX_TOKENS_SETTING = 'aimux.maxTokens';
++const AIMUX_ENABLED_SETTING = 'aimux.enabled';
++const AIMUX_REQUEST_TIMEOUT_MS = 15000;
++
++export const IAimuxProviderService = createDecorator<IAimuxProviderService>('IAimuxProviderService');
++
++export interface IAimuxProviderService {
++	readonly _serviceBrand: undefined;
++	isEnabled(): boolean;
++	getApiKey(): string | undefined;
++	getApiUrl(): string;
++	setApiKey(apiKey: string): void;
++	testConnection(): Promise<boolean>;
++}
++
++export class AimuxProviderService extends Disposable implements IAimuxProviderService {
++	declare readonly _serviceBrand: undefined;
++
++	private _apiKey: string | undefined;
++	private _statusBarEntry: { id: string; label: string; alignment: StatusbarAlignment } | undefined;
++	private _statusBarItem: Disposable | undefined;
++	private readonly _disposables = this._register(new DisposableStore());
++
++	constructor(
++		@IStorageService private readonly storageService: IStorageService,
++		@IConfigurationService private readonly configurationService: IConfigurationService,
++		@IStatusbarService private readonly statusbarService: IStatusbarService,
++		@ILogService private readonly logService: ILogService,
++	) {
++		super();
++		this._apiKey = storageService.get(AIMUX_API_KEY_STORAGE_KEY, StorageScope.GLOBAL, undefined);
++		this._updateStatusBar();
++
++		// Listen for configuration changes
++		this._register(
++			configurationService.onDidChangeConfiguration((e) => {
++				if (e.affectsConfiguration(AIMUX_ENABLED_SETTING) ||
++					e.affectsConfiguration(AIMUX_API_URL_SETTING)) {
++					this._updateStatusBar();
++				}
++			})
++		);
++	}
++
++	isEnabled(): boolean {
++		const enabled = this.configurationService.getValue<boolean>(AIMUX_ENABLED_SETTING);
++		return !!enabled && !!this._apiKey;
++	}
++
++	getApiKey(): string | undefined {
++		return this._apiKey || this.storageService.get(AIMUX_API_KEY_STORAGE_KEY, StorageScope.GLOBAL, undefined);
++	}
++
++	getApiUrl(): string {
++		return this.configurationService.getValue<string>(AIMUX_API_URL_SETTING) || AIMUX_DEFAULT_API_URL;
++	}
++
++	setApiKey(apiKey: string): void {
++		this._apiKey = apiKey;
++		this.storageService.store(
++			AIMUX_API_KEY_STORAGE_KEY,
++			apiKey,
++			StorageScope.GLOBAL,
++			StorageTarget.MACHINE
++		);
++		this._updateStatusBar();
++	}
++
++	async testConnection(): Promise<boolean> {
++		const apiUrl = this.getApiUrl();
++		const apiKey = this.getApiKey();
++		if (!apiKey) {
++			return false;
++		}
++
++		try {
++			const response = await fetch(`${apiUrl}/v1/models`, {
++				method: 'GET',
++				headers: {
++					'Authorization': `Bearer ${apiKey}`,
++					'Content-Type': 'application/json',
++				},
++				signal: AbortSignal.timeout(AIMUX_REQUEST_TIMEOUT_MS),
++			});
++			return response.ok;
++		} catch (error) {
++			this.logService.warn(`[Aimux] Connection test failed: ${error}`);
++			return false;
++		}
++	}
++
++	private _updateStatusBar(): void {
++		if (this._statusBarItem) {
++			this._statusBarItem.dispose();
++		}
++
++		const enabled = this.configurationService.getValue<boolean>(AIMUX_ENABLED_SETTING);
++		const hasKey = !!this.getApiKey();
++		let label: string;
++		let color: string | undefined;
++
++		if (!enabled) {
++			label = '$(robot) !!APP_NAME!! Aimux: Disabled';
++		} else if (!hasKey) {
++			label = '$(robot) !!APP_NAME!! Aimux: No API Key';
++			color = '#ffc107';
++		} else {
++			label = '$(robot) !!APP_NAME!! Aimux: Active';
++			color = '#4caf50';
++		}
++
++		this._statusBarItem = this.statusbarService.addEntry(
++			{
++				name: 'Aimux AI Completion',
++				text: label,
++				tooltip: 'Aimux AI Completion Status',
++				alignment: StatusbarAlignment.RIGHT,
++				arguments: undefined,
++				color,
++			},
++			StatusbarAlignment.RIGHT,
++			1000
++		);
++	}
++}
++
++export class AimuxInlineCompletionProvider extends Disposable implements InlineCompletionItemProvider {
++
++	readonly suppressSuggestions: boolean = true;
++	readonly displayName: string = 'Aimux AI';
++
++	private readonly _requestId = 0;
++	private _pendingRequests: Map<number, AbortController> = new Map();
++
++	constructor(
++		@IAimuxProviderService private readonly aimuxService: IAimuxProviderService,
++		@IConfigurationService private readonly configurationService: IConfigurationService,
++		@ILogService private readonly logService: ILogService,
++	) {
++		super();
++	}
++
++	async provideInlineCompletions(
++		model: TextModel,
++		position: Position,
++		context: InlineCompletionContext,
++		token: CancellationToken
++	): Promise<InlineCompletionList | undefined> {
++		if (!this.aimuxService.isEnabled()) {
++			return undefined;
++		}
++
++		const apiKey = this.aimuxService.getApiKey();
++		if (!apiKey) {
++			return undefined;
++		}
++
++		// Build context from surrounding text
++		const maxTokens = this.configurationService.getValue<number>(AIMUX_MAX_TOKENS_SETTING) || 64;
++		const prompt = this._buildPrompt(model, position);
++
++		if (!prompt) {
++			return undefined;
++		}
++
++		const requestId = ++this._requestId;
++		const abortController = new AbortController();
++		this._pendingRequests.set(requestId, abortController);
++
++		// Register cancellation
++		const disposable = token.onCancellationRequested(() => {
++			abortController.abort();
++			this._pendingRequests.delete(requestId);
++		});
++
++		try {
++			const apiUrl = this.aimuxService.getApiUrl();
++			const model_name = this.configurationService.getValue<string>(AIMUX_MODEL_SETTING) || 'gpt-3.5-turbo-instruct';
++
++			const requestBody: IAimuxCompletionRequest = {
++				prompt,
++				max_tokens: maxTokens,
++				temperature: 0.2,
++				model: model_name,
++			};
++
++			this.logService.debug(`[Aimux] Requesting completion from ${apiUrl}/v1/completions`);
++
++			const response = await fetch(`${apiUrl}/v1/completions`, {
++				method: 'POST',
++				headers: {
++					'Authorization': `Bearer ${apiKey}`,
++					'Content-Type': 'application/json',
++				},
++				body: JSON.stringify(requestBody),
++				signal: abortController.signal,
++			});
++
++			if (!response.ok) {
++				const errorText = await response.text();
++				this.logService.warn(`[Aimux] API error: ${response.status} - ${errorText}`);
++				return undefined;
++			}
++
++			const data: IAimuxCompletionResponse = await response.json();
++
++			if (!data.choices || data.choices.length === 0) {
++				return undefined;
++			}
++
++			const completions: InlineCompletionItem[] = data.choices.map((choice) => {
++				const insertText = choice.text.trimLeft();
++				const range = new Range(
++					position.lineNumber,
++					position.column,
++					position.lineNumber,
++					position.column
++				);
++				return new InlineCompletionItem(
++					insertText,
++					`Aimux: ${model_name}`,
++					range,
++					{
++						title: 'Aimux Completion',
++					}
++				);
++			});
++
++			return { items: completions, suppliesEdits: true };
++
++		} catch (error) {
++			if ((error as Error).name !== 'AbortError') {
++				this.logService.warn(`[Aimux] Request failed: ${error}`);
++			}
++			return undefined;
++		} finally {
++			disposable.dispose();
++			this._pendingRequests.delete(requestId);
++		}
++	}
++
++	private _buildPrompt(model: TextModel, position: Position): string | undefined {
++		const maxContextLines = 50;
++		const startLine = Math.max(1, position.lineNumber - maxContextLines);
++		const endLine = Math.min(model.getLineCount(), position.lineNumber);
++
++		const lines: string[] = [];
++		for (let i = startLine; i <= endLine; i++) {
++			lines.push(model.getLineContent(i));
++		}
++
++		const beforeCursor = lines.join('\n');
++
++		if (beforeCursor.trim().length === 0) {
++			return undefined;
++		}
++
++		return beforeCursor;
++	}
++
++	releaseInlineCompletions(items: InlineCompletionList, sender: unknown): void {
++		// Cancel any pending requests
++		for (const [, controller] of this._pendingRequests) {
++			controller.abort();
++		}
++		this._pendingRequests.clear();
++	}
++}
++
++registerSingleton(IAimuxProviderService, AimuxProviderService, InstantiationType.Delayed);
+diff --git a/src/vs/workbench/workbench.common.main.ts b/src/vs/workbench/workbench.common.main.ts
+index 0000005..0000006 100644
+--- a/src/vs/workbench/workbench.common.main.ts
++++ b/src/vs/workbench/workbench.common.main.ts
+@@ -100,6 +100,9 @@ import 'vs/workbench/contrib/remote/browser/remote.contribution';
+ import 'vs/workbench/contrib/terminal/terminal.all';
+ // %%CONTRIB_END%%
+ 
++// Aimux AI Completion Provider
++import 'vs/workbench/contrib/aiCompletions/common/aimuxProvider';
++
+ // Workbench services
+ import 'vs/workbench/services/workbench/browser/workbenchService';
+ import 'vs/workbench/services/editor/browser/editorService';
