@@ -258,7 +258,7 @@ replace "s|\\[\\/\\* BUILTIN_ANNOUNCEMENTS \\*\\/\\]|$( tr -d '\n' < ../announce
 ../undo_telemetry.sh
 
 replace 's|Microsoft Corporation|Aimux|' build/lib/electron.ts
-replace 's|([0-9]) Microsoft|\\1 Aimux|' build/lib/electron.ts
+replace 's|([0-9]) Microsoft|\1 Aimux|' build/lib/electron.ts
 
 if [[ "${OS_NAME}" == "linux" ]]; then
   # microsoft adds their apt repo to sources
