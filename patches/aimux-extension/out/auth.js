@@ -73,11 +73,80 @@ class AimuxAuth {
     }
     async startOAuthFlow(baseUrl) {
         apiBase = baseUrl;
-        // Pick provider
-        const provider = await this.pickProvider();
+        // Let the user choose how to sign in. "Aimux Account" (email + password)
+        // is the primary, recommended method: no browser, no third-party app
+        // policies, and it binds directly to the user's Aimux account so models,
+        // balance, and API keys all resolve correctly.
+        const choice = await vscode.window.showQuickPick([
+            {
+                label: '$(account) Aimux Account',
+                description: 'Sign in with your Aimux email & password (recommended)',
+                id: 'password',
+            },
+            {
+                label: '$(globe) Google',
+                description: 'Sign in with Google (opens browser)',
+                id: 'google',
+            },
+            {
+                label: '$(github) GitHub',
+                description: 'Sign in with GitHub (opens browser)',
+                id: 'github',
+            },
+        ], {
+            placeHolder: 'How would you like to sign in to Aimux?',
+            title: 'Aimux: Sign In',
+        });
+        if (!choice) {
+            throw new Error('Sign in cancelled');
+        }
+        if (choice.id === 'password') {
+            return this.loginWithPassword(baseUrl);
+        }
+        const provider = PROVIDERS.find(p => p.name.toLowerCase() === choice.id);
         if (!provider) {
             throw new Error('Sign in cancelled');
         }
+        return this.runBrowserOAuth(provider);
+    }
+    /**
+     * Direct username/password login against /api/ide/auth/login.
+     * No browser, cannot be blocked by Google/GitHub app verification policies.
+     */
+    async loginWithPassword(baseUrl) {
+        apiBase = baseUrl;
+        const login = await vscode.window.showInputBox({
+            title: 'Aimux: Sign In (1/2)',
+            prompt: 'Enter your Aimux email or username',
+            placeHolder: 'you@example.com',
+            ignoreFocusOut: true,
+            validateInput: (v) => (v && v.trim().length > 0 ? null : 'Email or username is required'),
+        });
+        if (login === undefined) {
+            throw new Error('Sign in cancelled');
+        }
+        const password = await vscode.window.showInputBox({
+            title: 'Aimux: Sign In (2/2)',
+            prompt: 'Enter your Aimux password',
+            password: true,
+            ignoreFocusOut: true,
+            validateInput: (v) => (v && v.length > 0 ? null : 'Password is required'),
+        });
+        if (password === undefined) {
+            throw new Error('Sign in cancelled');
+        }
+        const resp = await postToAimux(`${apiBase}/api/ide/auth/login`, {
+            login: login.trim(),
+            password,
+        });
+        const token = resp && (resp.token || resp.api_key);
+        if (!token) {
+            const detail = (resp && (resp.detail || resp.error || resp.message)) || 'Login failed';
+            throw new Error(typeof detail === 'string' ? detail : 'Login failed');
+        }
+        return token;
+    }
+    async runBrowserOAuth(provider) {
         // Start local server for OAuth callback
         const { server, port, promise } = this.createCallbackServer();
         const redirectUri = `http://127.0.0.1:${port}/callback`;
@@ -225,6 +294,43 @@ async function fetchFromAimux(url) {
             req.destroy();
             reject(new Error('OAuth request timed out'));
         });
+    });
+}
+async function postToAimux(url, payload) {
+    return new Promise((resolve, reject) => {
+        const protocol = url.startsWith('https') ? require('https') : require('http');
+        const body = JSON.stringify(payload);
+        const u = new URL(url);
+        const options = {
+            method: 'POST',
+            hostname: u.hostname,
+            port: u.port || (url.startsWith('https') ? 443 : 80),
+            path: u.pathname + u.search,
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Content-Length': Buffer.byteLength(body),
+            },
+        };
+        const req = protocol.request(options, (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk.toString(); });
+            res.on('end', () => {
+                try {
+                    resolve(JSON.parse(data));
+                }
+                catch {
+                    resolve({ detail: data || `HTTP ${res.statusCode}` });
+                }
+            });
+        });
+        req.on('error', reject);
+        req.setTimeout(15000, () => {
+            req.destroy();
+            reject(new Error('Login request timed out'));
+        });
+        req.write(body);
+        req.end();
     });
 }
 //# sourceMappingURL=auth.js.map

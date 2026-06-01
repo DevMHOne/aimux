@@ -8,6 +8,12 @@ export declare class AimuxAuth {
     getApiKey(): string;
     isAuthenticated(): boolean;
     startOAuthFlow(baseUrl: string): Promise<string>;
+    /**
+     * Direct username/password login against /api/ide/auth/login.
+     * No browser, cannot be blocked by Google/GitHub app verification policies.
+     */
+    loginWithPassword(baseUrl: string): Promise<string>;
+    private runBrowserOAuth;
     private pickProvider;
     private createCallbackServer;
 }

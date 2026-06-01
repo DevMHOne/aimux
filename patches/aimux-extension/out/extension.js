@@ -70,7 +70,8 @@ async function activate(context) {
     }
     // Register chat participant (proposed API — guard so a missing API can't abort activation)
     try {
-        if (vscode.chat && typeof vscode.chat.createChatParticipant === 'function') {
+        const chatApi = vscode.chat;
+        if (chatApi && typeof chatApi.createChatParticipant === 'function') {
             (0, chat_1.registerChatParticipant)(api);
         }
         else {
