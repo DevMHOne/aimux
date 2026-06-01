@@ -37,70 +37,87 @@ exports.AimuxStatusBar = void 0;
 const vscode = __importStar(require("vscode"));
 class AimuxStatusBar {
     context;
-    statusBarItem;
-    modelStatusBarItem;
+    modelItem;
+    accountItem;
     connected = false;
     model = '';
+    profile = {};
     constructor(context) {
         this.context = context;
-        this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-        this.statusBarItem.command = 'aimux.selectModel';
-        this.statusBarItem.tooltip = 'Aimux AI — Click to select model';
-        this.modelStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
-        this.modelStatusBarItem.command = 'aimux.signIn';
+        // Model indicator (click → select model)
+        this.modelItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+        this.modelItem.command = 'aimux.selectModel';
+        this.modelItem.tooltip = 'Aimux AI — Click to select model';
+        // Account / profile indicator (click → account menu or sign in)
+        this.accountItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+        this.accountItem.command = 'aimux.account';
     }
     register() {
-        this.context.subscriptions.push(this.statusBarItem, this.modelStatusBarItem);
+        this.context.subscriptions.push(this.modelItem, this.accountItem);
         this.updateDisplay();
     }
-    setConnected(model) {
+    setConnected(model, profile) {
         this.connected = true;
         this.model = model || '';
+        if (profile) {
+            this.profile = profile;
+        }
+        this.updateDisplay();
+    }
+    setProfile(profile) {
+        this.profile = profile || {};
         this.updateDisplay();
     }
     setDisconnected() {
         this.connected = false;
         this.model = '';
+        this.profile = {};
         this.updateDisplay();
     }
+    getProfile() {
+        return this.profile;
+    }
+    profileLabel() {
+        return this.profile.name || this.profile.email || 'Account';
+    }
     updateDisplay() {
-        if (this.connected) {
-            // Model indicator
-            this.statusBarItem.text = `$(sparkle) Aimux: ${this.model || 'no model'}`;
-            this.statusBarItem.color = new vscode.ThemeColor('statusBarItem.foreground');
-            this.statusBarItem.backgroundColor = undefined;
-            this.statusBarItem.tooltip = this.model
-                ? `Aimux — Active model: ${this.model}\nClick to change model`
-                : 'Aimux — Connected but no model selected\nClick to select model';
-            this.statusBarItem.show();
-            // Hidden login indicator
-            this.modelStatusBarItem.hide();
-        }
-        else {
-            // Check if signed in but no model
-            const config = vscode.workspace.getConfiguration('aimux');
-            const apiKey = config.get('apiKey', '');
-            if (apiKey) {
-                // Signed in, no model
-                this.statusBarItem.text = '$(warning) Aimux: No Model';
-                this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-                this.statusBarItem.tooltip = 'Aimux — Signed in but no model selected\nClick to select model';
-                this.statusBarItem.show();
+        const config = vscode.workspace.getConfiguration('aimux');
+        const apiKey = config.get('apiKey', '');
+        const signedIn = this.connected || !!apiKey;
+        if (signedIn) {
+            // ── Account / profile icon ──
+            this.accountItem.text = `$(account) ${this.profileLabel()}`;
+            this.accountItem.backgroundColor = undefined;
+            this.accountItem.tooltip = this.profile.email
+                ? `Aimux — Signed in as ${this.profile.email}\nClick for account options`
+                : 'Aimux — Signed in\nClick for account options';
+            this.accountItem.show();
+            // ── Model indicator ──
+            if (this.model) {
+                this.modelItem.text = `$(sparkle) ${this.model}`;
+                this.modelItem.backgroundColor = undefined;
+                this.modelItem.tooltip = `Aimux — Active model: ${this.model}\nClick to change model`;
             }
             else {
-                // Not signed in
-                this.statusBarItem.text = '$(plug) Aimux: Sign In';
-                this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.prominentBackground');
-                this.statusBarItem.tooltip = 'Aimux — Click to sign in';
-                this.statusBarItem.command = 'aimux.signIn';
-                this.statusBarItem.show();
+                this.modelItem.text = '$(sparkle) Aimux: Select Model';
+                this.modelItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+                this.modelItem.tooltip = 'Aimux — No model selected\nClick to select model';
             }
-            this.modelStatusBarItem.hide();
+            this.modelItem.show();
+        }
+        else {
+            // ── Not signed in: account icon is the sign-in entry point ──
+            this.accountItem.text = '$(account) Sign in to Aimux';
+            this.accountItem.backgroundColor = new vscode.ThemeColor('statusBarItem.prominentBackground');
+            this.accountItem.tooltip = 'Aimux — Click to sign in';
+            this.accountItem.show();
+            // Hide the model indicator until signed in
+            this.modelItem.hide();
         }
     }
     dispose() {
-        this.statusBarItem.dispose();
-        this.modelStatusBarItem.dispose();
+        this.modelItem.dispose();
+        this.accountItem.dispose();
     }
 }
 exports.AimuxStatusBar = AimuxStatusBar;

@@ -4,11 +4,13 @@ import { AimuxApi } from './api';
 import { registerChatParticipant } from './chat';
 import { registerCompletionProvider } from './completions';
 import { AimuxStatusBar } from './statusBar';
+import { AimuxChatViewProvider } from './chatView';
 
 export interface AimuxContext {
     auth: AimuxAuth;
     api: AimuxApi;
     statusBar: AimuxStatusBar;
+    chatProvider?: AimuxChatViewProvider;
     globalState: vscode.Memento;
 }
 
@@ -32,10 +34,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     registerSignInCommand(context, auth, api, statusBar);
     registerSignOutCommand(context, auth, statusBar);
     registerSelectModelCommand(context, api, statusBar);
+    registerAccountCommand(context, auth, api, statusBar);
 
     // Register status bar FIRST so the Sign In button always appears,
     // even if optional/proposed APIs (chat) are unavailable in this build.
     statusBar.register();
+
+    // Register the webview chat panel (sidebar). This replaces the gated
+    // vscode.chat participant which is undefined in VSCodium-based builds.
+    const chatProvider = new AimuxChatViewProvider(context.extensionUri, api);
+    aimuxContext.chatProvider = chatProvider;
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(
+            AimuxChatViewProvider.viewType,
+            chatProvider,
+            { webviewOptions: { retainContextWhenHidden: true } }
+        )
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand('aimux.openChat', () => {
+            vscode.commands.executeCommand('aimux.chatView.focus');
+        }),
+        vscode.commands.registerCommand('aimux.chat.clear', () => chatProvider.refresh())
+    );
 
     // Check initial auth state
     if (auth.isAuthenticated()) {
@@ -133,6 +154,7 @@ function registerSignInCommand(
                         }
 
                         vscode.window.showInformationMessage('Aimux: Signed in successfully!');
+                        getAimuxContext()?.chatProvider?.refresh();
                     }
                 );
             } catch (err: any) {
@@ -160,6 +182,7 @@ function registerSignOutCommand(
             await config.update('model', '', vscode.ConfigurationTarget.Global);
 
             vscode.window.showInformationMessage('Aimux: Signed out');
+            getAimuxContext()?.chatProvider?.refresh();
         })
     );
 }
@@ -200,6 +223,59 @@ function registerSelectModelCommand(
                 }
             } catch (err: any) {
                 vscode.window.showErrorMessage(`Aimux: Failed to fetch models — ${err.message}`);
+            }
+        })
+    );
+}
+
+/**
+ * Account / profile menu — the entry point behind the profile ($(account)) status
+ * bar item. When signed out it triggers sign-in; when signed in it offers model
+ * selection and sign-out, showing the account name/email.
+ */
+function registerAccountCommand(
+    context: vscode.ExtensionContext,
+    auth: AimuxAuth,
+    api: AimuxApi,
+    statusBar: AimuxStatusBar
+): void {
+    context.subscriptions.push(
+        vscode.commands.registerCommand('aimux.account', async () => {
+            if (!auth.isAuthenticated()) {
+                // Not signed in → start sign-in
+                await vscode.commands.executeCommand('aimux.signIn');
+                return;
+            }
+
+            const profile = statusBar.getProfile();
+            const who = profile.name || profile.email || 'Aimux account';
+            const currentModel = api.getCurrentModel();
+
+            const picks: (vscode.QuickPickItem & { id: string })[] = [
+                {
+                    id: 'model',
+                    label: '$(sparkle) Select Model',
+                    description: currentModel ? `Current: ${currentModel}` : 'No model selected',
+                },
+                {
+                    id: 'signout',
+                    label: '$(sign-out) Sign Out',
+                    description: profile.email || undefined,
+                },
+            ];
+
+            const selected = await vscode.window.showQuickPick(picks, {
+                title: `Aimux — ${who}`,
+                placeHolder: profile.email ? `Signed in as ${profile.email}` : 'Account options',
+            });
+
+            if (!selected) {
+                return;
+            }
+            if (selected.id === 'model') {
+                await vscode.commands.executeCommand('aimux.selectModel');
+            } else if (selected.id === 'signout') {
+                await vscode.commands.executeCommand('aimux.signOut');
             }
         })
     );

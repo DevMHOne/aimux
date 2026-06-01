@@ -38,8 +38,41 @@
       {
         "command": "aimux.selectModel",
         "title": "Aimux: Select Model"
+      },
+      {
+        "command": "aimux.account",
+        "title": "Aimux: Account"
+      },
+      {
+        "command": "aimux.openChat",
+        "title": "Aimux: Open Chat",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "aimux.chat.clear",
+        "title": "Aimux: Clear Chat",
+        "icon": "$(clear-all)"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aimux-sidebar",
+          "title": "Aimux AI",
+          "icon": "assets/aimux.png"
+        }
+      ]
+    },
+    "views": {
+      "aimux-sidebar": [
+        {
+          "type": "webview",
+          "id": "aimux.chatView",
+          "name": "Chat",
+          "icon": "assets/aimux.png"
+        }
+      ]
+    },
     "chatParticipants": [
       {
         "id": "aimux.chat",

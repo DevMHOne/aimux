@@ -53,26 +53,22 @@ export class AimuxAuth {
     async startOAuthFlow(baseUrl: string): Promise<string> {
         apiBase = baseUrl;
 
-        // Let the user choose how to sign in. "Aimux Account" (email + password)
-        // is the primary, recommended method: no browser, no third-party app
-        // policies, and it binds directly to the user's Aimux account so models,
-        // balance, and API keys all resolve correctly.
+        // Let the user choose how to sign in. "Aimux Account" (device code) is the
+        // primary, recommended method: opens aimux.id in the browser (where the user
+        // is typically already logged in via Google), they click Authorize once, and
+        // the IDE logs in automatically by polling. No password typed in the editor,
+        // and it can never be blocked by Google/GitHub app-verification policies.
         const choice = await vscode.window.showQuickPick(
             [
                 {
-                    label: '$(account) Aimux Account',
-                    description: 'Sign in with your Aimux email & password (recommended)',
+                    label: '$(account) Sign in with Aimux',
+                    description: 'Opens aimux.id — authorize once, logs in automatically (recommended)',
+                    id: 'device',
+                },
+                {
+                    label: '$(key) Email & password',
+                    description: 'Sign in with your Aimux email & password',
                     id: 'password',
-                },
-                {
-                    label: '$(globe) Google',
-                    description: 'Sign in with Google (opens browser)',
-                    id: 'google',
-                },
-                {
-                    label: '$(github) GitHub',
-                    description: 'Sign in with GitHub (opens browser)',
-                    id: 'github',
                 },
             ],
             {
@@ -88,12 +84,75 @@ export class AimuxAuth {
         if (choice.id === 'password') {
             return this.loginWithPassword(baseUrl);
         }
+        return this.loginWithDeviceCode(baseUrl);
+    }
 
-        const provider = PROVIDERS.find(p => p.name.toLowerCase() === choice.id);
-        if (!provider) {
+    /**
+     * Device-code flow (GitHub-CLI / Cursor style). Opens the browser to
+     * aimux.id/oauth/login?code=XXXX-XXXX and polls until the user authorizes.
+     * The user is usually already signed in to aimux.id via Google, so this is a
+     * single click — no password, cannot be blocked by OAuth app policies.
+     */
+    async loginWithDeviceCode(baseUrl: string): Promise<string> {
+        apiBase = baseUrl;
+
+        // 1. Request a device + user code
+        const start = await postToAimux(`${apiBase}/api/ide/auth/device/code`, {});
+        const deviceCode = start && start.device_code;
+        const userCode = start && start.user_code;
+        const verifyUrl = (start && (start.verification_uri_complete || start.verification_uri)) || `${apiBase}/oauth/login`;
+        const interval = Math.max(2, Number(start && start.interval) || 4);
+        const expiresIn = Number(start && start.expires_in) || 600;
+        if (!deviceCode || !userCode) {
+            throw new Error('Could not start device login');
+        }
+
+        // 2. Show the code and open the browser
+        const openChoice = await vscode.window.showInformationMessage(
+            `Aimux sign-in code: ${userCode}\n\nA browser will open to authorize this code. Keep this code visible.`,
+            { modal: true },
+            'Open Browser & Authorize'
+        );
+        if (openChoice !== 'Open Browser & Authorize') {
             throw new Error('Sign in cancelled');
         }
-        return this.runBrowserOAuth(provider);
+        vscode.env.openExternal(vscode.Uri.parse(verifyUrl));
+
+        // 3. Poll for authorization
+        const deadline = Date.now() + expiresIn * 1000;
+        return await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: `Aimux: waiting for authorization (code ${userCode})…`,
+                cancellable: true,
+            },
+            async (_progress, token): Promise<string> => {
+                while (Date.now() < deadline) {
+                    if (token.isCancellationRequested) {
+                        throw new Error('Sign in cancelled');
+                    }
+                    await delay(interval * 1000);
+                    let resp: any;
+                    try {
+                        resp = await postToAimux(`${apiBase}/api/ide/auth/device/token`, { device_code: deviceCode });
+                    } catch {
+                        continue; // transient network error — keep polling
+                    }
+                    const status = resp && resp.status;
+                    if (status === 'authorized' && resp.token) {
+                        return resp.token as string;
+                    }
+                    if (status === 'access_denied') {
+                        throw new Error('Authorization was denied');
+                    }
+                    if (status === 'expired_token') {
+                        throw new Error('Code expired — please try again');
+                    }
+                    // authorization_pending → keep polling
+                }
+                throw new Error('Sign in timed out — please try again');
+            }
+        );
     }
 
     /**
@@ -346,4 +405,8 @@ async function postToAimux(url: string, payload: any): Promise<any> {
         req.write(body);
         req.end();
     });
+}
+
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
