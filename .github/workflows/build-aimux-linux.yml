@@ -72,11 +72,7 @@ jobs:
       - name: Clone VS Code source
         run: ./get_repo.sh
 
-      # ── Prepare: patches + npm ci ─────────────────────────────
-      - name: Prepare VS Code (apply patches, install deps)
-        run: ./prepare_vscode.sh
-
-      # ── Build Electron app ────────────────────────────────────
+      # ── Build (includes prepare_vscode.sh internally) ─────────
       - name: Build Aimux for Linux
         run: ./build.sh
 

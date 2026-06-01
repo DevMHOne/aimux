@@ -33,8 +33,7 @@ apply_actions() {
               exit 4
             fi
           else
-            echo "Not found: ${ENTRY_PATH}" >&2
-            exit 4
+            echo "Not found (skipped): ${ENTRY_PATH}"
           fi
         done
       ;;
